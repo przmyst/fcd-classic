@@ -190,26 +190,40 @@ function assignGasAndTax(lcdTx: Transaction.LcdTransaction) {
 //Recursion is not implemented well in js, so in case of deeply nested objects, this might fail with RangeError: Maximum call stack size exceeded
 //Tx objects are hopefully not that deep, but just in case they are https://replit.com/@mkotsollaris/javascript-iterate-for-loop?v=1#index.js or something along those lines.
 //Going with simple recursion due time constaints.
-function sanitizeTx(tx: Transaction.LcdTransaction): Transaction.LcdTransaction {
-  function hasUnicode(s) {
-    // eslint-disable-next-line no-control-regex
-    return /[^\u0000-\u007f]/.test(s)
-  }
+function sanitizeTx(tx) {
+    function hasProblematicUnicode(s) {
+        return (
+            /[^\u0000-\u007f]/.test(s) ||
+            /[\u0000-\u001f\u007f-\u009f\u00ad\u200b\u2028\u2029\u2060-\u206f\ufffd]/.test(s)
+        );
+    }
 
-  const iterateTx = (obj) => {
-    Object.keys(obj).forEach((key) => {
-      if (typeof obj[key] === 'object' && obj[key] !== null) {
-        iterateTx(obj[key])
-      } else {
-        if (hasUnicode(obj[key])) {
-          const b = Buffer.from(obj[key])
-          obj[key] = b.toString('base64')
+    function encodeIfNeeded(value) {
+        if (hasProblematicUnicode(value)) {
+            return Buffer.from(value, 'utf8').toString('base64');
+        } else {
+            return value;
         }
-      }
-    })
-  }
-  iterateTx(tx)
-  return tx
+    }
+
+    function sanitizeObject(obj) {
+        const sanitizedObj = {};
+
+        Object.keys(obj).forEach((key) => {
+            const sanitizedKey = encodeIfNeeded(key);
+            if (typeof obj[key] === 'object' && obj[key] !== null) {
+                sanitizedObj[sanitizedKey] = sanitizeObject(obj[key]);
+            } else if (typeof obj[key] === 'string') {
+                sanitizedObj[sanitizedKey] = encodeIfNeeded(obj[key]);
+            } else {
+                sanitizedObj[sanitizedKey] = obj[key];
+            }
+        });
+
+        return sanitizedObj;
+    }
+
+    return sanitizeObject(tx);
 }
 
 async function generateTxEntities(txHashes: string[], block: BlockEntity): Promise<TxEntity[]> {
